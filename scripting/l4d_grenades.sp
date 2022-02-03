@@ -1,6 +1,6 @@
 /*
 *	Prototype Grenades
-*	Copyright (C) 2021 Silvers
+*	Copyright (C) 2022 Silvers
 *
 *	This program is free software: you can redistribute it and/or modify
 *	it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.42"
+#define PLUGIN_VERSION 		"1.43"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,10 @@
 
 ========================================================================================
 	Change Log:
+
+1.43 (02-Feb-2022)
+	- Fixed the "Medic" type not following the "targets" data settings. Thanks to "NoroHime" for reporting.
+	- Fixed being able to select the "Airstrike" grenade type if disabled when using M2 to change types. Thanks to "KadabraZz" for reporting.
 
 1.42 (29-Oct-2021)
 	- Changed "Medic" grenade type to allow healing all targets specified, no longer only Survivors. Requested by "Dragokas".
@@ -1196,6 +1200,8 @@ public int Menu_Grenade(Menu menu, MenuAction action, int client, int index)
 		case MenuAction_End:
 			delete menu;
 	}
+
+	return 0;
 }
 
 
@@ -2121,6 +2127,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 						{
 							// Cycle through modes
 							int index = GetGrenadeIndex(client, type);
+
 							g_GrenadeType[iWeapon] = index + 1;
 
 							static char translation[256];
@@ -2150,6 +2157,8 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 			}
 		}
 	}
+
+	return Plugin_Continue;
 }
 
 int GetGrenadeIndex(int client, int type)
@@ -2178,6 +2187,12 @@ int GetGrenadeIndex(int client, int type)
 		// Loop next
 		for( int i = index - 1; i < MAX_TYPES; i++ )
 		{
+			// Skip Airstrike if invalid
+			if( i == INDEX_AIRSTRIKE && (!g_bLeft4Dead2 || !g_bAirstrike || !g_bAirstrikeValid) )
+			{
+				i += 1;
+			}
+
 			if( g_GrenadeSlot[i][view_as<int>(!g_bLeft4Dead2)] & (1<<type - 1) && types & (1<<i) )
 			{
 				index = i + 1;
@@ -2784,6 +2799,8 @@ public Action Timer_Detonate(Handle timer, any entity)
 	{
 		Detonate_Grenade(entity);
 	}
+
+	return Plugin_Continue;
 }
 
 public void OnTouch_Detonate(int entity, int other)
@@ -3618,7 +3635,7 @@ public void Explode_Medic(int client, int entity, int index)
 	CreateBeamRing(entity, { 0, 150, 0, 255 }, 0.1, range - (range / BEAM_RINGS));
 
 	// Heal targets
-	int targ = g_GrenadeTarg[INDEX_FREEZER];
+	int targ = g_GrenadeTarg[INDEX_MEDIC];
 	int team;
 	bool pass;
 
@@ -5097,6 +5114,8 @@ public Action TimerResetGlow(Handle timer, any target)
 		SetEntProp(target, Prop_Send, "m_iGlowType", 0);
 		SetEntProp(target, Prop_Send, "m_glowColorOverride", 0);
 	}
+
+	return Plugin_Continue;
 }
 
 int ValidTargetRef(int target)
