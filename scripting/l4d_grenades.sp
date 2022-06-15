@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.43"
+#define PLUGIN_VERSION 		"1.44"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,12 @@
 
 ========================================================================================
 	Change Log:
+
+1.44 (15-Jun-2022)
+	- Added data setting "effect_freeze" for the "Freezer" type to set how long Survivors and Special Infected are frozen for. Requested by "weakestL4D2enjoyer".
+	- Added data setting "damage_bonus" for the "Glow" type to set a damage multiplier while affected by the "Glow". Requested by "weakestL4D2enjoyer".
+	- Changed the "BlackHole" type to not throw Survivors or Special Infected unless they are on the ground.
+	- Changes to fix warnings when compiling on SourceMod 1.11.
 
 1.43 (02-Feb-2022)
 	- Fixed the "Medic" type not following the "targets" data settings. Thanks to "NoroHime" for reporting.
@@ -539,6 +545,8 @@ float	g_fConfigAcidComm;											// Chemical Mode - Acid damage - Common
 float	g_fConfigAcidSelf;											// Chemical Mode - Acid damage - Self
 float	g_fConfigAcidSpec;											// Chemical Mode - Acid damage - Special Infected
 float	g_fConfigAcidSurv;											// Chemical Mode - Acid damage - Survivors
+float	g_fConfigGlowBonus;											// Glow mode - damage bonus
+float	g_fConfigFreezeTime;										// Freeze mode - freeze time
 int		g_iConfigDmgType;											// Damage type. Only used for Flak type.
 int		g_iConfigBots;												// Can bots use Prototype Grenades
 int		g_iConfigStock;												// Which grenades have their default feature.
@@ -939,7 +947,7 @@ void SetClientPrefs(int client)
 // ====================================================================================================
 //					COMMANDS
 // ====================================================================================================
-public Action Cmd_Reload(int client, int args)
+Action Cmd_Reload(int client, int args)
 {
 	LoadDataConfig();
 	if( client )
@@ -949,13 +957,13 @@ public Action Cmd_Reload(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action Cmd_SpawnThrow(int client, int args)
+Action Cmd_SpawnThrow(int client, int args)
 {
 	DoSpawnCommand(client, args, true);
 	return Plugin_Handled;
 }
 
-public Action Cmd_SpawnSpawn(int client, int args)
+Action Cmd_SpawnSpawn(int client, int args)
 {
 	DoSpawnCommand(client, args, false);
 	return Plugin_Handled;
@@ -1034,7 +1042,7 @@ void DoSpawnCommand(int client, int args, bool projectile)
 // ====================================================================================================
 //					MENU
 // ====================================================================================================
-public Action Cmd_Grenade(int client, int args)
+Action Cmd_Grenade(int client, int args)
 {
 	if( !client )
 	{
@@ -1123,8 +1131,12 @@ void ShowGrenadeMenu(int client)
 						// Airstrike
 						if( i != INDEX_AIRSTRIKE || (g_bLeft4Dead2 && g_bAirstrike && g_bAirstrikeValid) )
 						{
-							ins = true;
-							index = i + 1;
+							// Glow - ignored in L4D1
+							if( i != INDEX_GLOW || g_bLeft4Dead2 )
+							{
+								ins = true;
+								index = i + 1;
+							}
 						}
 					}
 				}
@@ -1156,7 +1168,7 @@ void ShowGrenadeMenu(int client)
 	PrintToChat(client, translation);
 }
 
-public int Menu_Grenade(Menu menu, MenuAction action, int client, int index)
+int Menu_Grenade(Menu menu, MenuAction action, int client, int index)
 {
 	switch( action )
 	{
@@ -1214,12 +1226,12 @@ public void OnConfigsExecuted()
 	IsAllowed();
 }
 
-public void ConVarChanged_Allow(Handle convar, const char[] oldValue, const char[] newValue)
+void ConVarChanged_Allow(Handle convar, const char[] oldValue, const char[] newValue)
 {
 	IsAllowed();
 }
 
-public void ConVarChanged_Cvars(Handle convar, const char[] oldValue, const char[] newValue)
+void ConVarChanged_Cvars(Handle convar, const char[] oldValue, const char[] newValue)
 {
 	GetCvars();
 }
@@ -1274,19 +1286,23 @@ void IsAllowed()
 				if( g_bLeft4Dead2 )
 				{
 					SDKHook(i, SDKHook_OnTakeDamageAlive, OnAcidDamage);
-
-					int entity = -1;
-					while( (entity = FindEntityByClassname(entity, "infected")) != INVALID_ENT_REFERENCE )
-					{
-						SDKHook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
-					}
-
-					entity = -1;
-					while( (entity = FindEntityByClassname(entity, "witch")) != INVALID_ENT_REFERENCE )
-					{
-						SDKHook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
-					}
 				}
+			}
+		}
+
+		// Chemical Mode - Acid damage
+		if( g_bLeft4Dead2 )
+		{
+			int entity = -1;
+			while( (entity = FindEntityByClassname(entity, "infected")) != INVALID_ENT_REFERENCE )
+			{
+				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+			}
+
+			entity = -1;
+			while( (entity = FindEntityByClassname(entity, "witch")) != INVALID_ENT_REFERENCE )
+			{
+				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
 			}
 		}
 	}
@@ -1310,7 +1326,23 @@ void IsAllowed()
 				if( IsClientInGame(i) )
 				{
 					SDKUnhook(i, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+					SDKUnhook(i, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
 				}
+			}
+
+			// Chemical Mode - Acid damage
+			int entity = -1;
+			while( (entity = FindEntityByClassname(entity, "infected")) != INVALID_ENT_REFERENCE )
+			{
+				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
+			}
+
+			entity = -1;
+			while( (entity = FindEntityByClassname(entity, "witch")) != INVALID_ENT_REFERENCE )
+			{
+				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
 			}
 		}
 	}
@@ -1374,7 +1406,7 @@ bool IsAllowedGameMode()
 	return true;
 }
 
-public void OnGamemode(const char[] output, int caller, int activator, float delay)
+void OnGamemode(const char[] output, int caller, int activator, float delay)
 {
 	if( strcmp(output, "OnCoop") == 0 )
 		g_iCurrentMode = 1;
@@ -1580,7 +1612,6 @@ void LoadDataEntry(int index, KeyValues hFile, const char[] KeyName)
 	{
 		g_GrenadeData[index][CONFIG_ELASTICITY]		=	hFile.GetFloat("elasticity",			0.4);
 		g_GrenadeData[index][CONFIG_GRAVITY]		=	hFile.GetFloat("gravity",				1.0);
-
 		g_GrenadeData[index][CONFIG_DMG_PHYSICS]	=	hFile.GetFloat("damage_physics",		1.0);
 		g_GrenadeData[index][CONFIG_DMG_SPECIAL]	=	hFile.GetFloat("damage_special",		1.0);
 		g_GrenadeData[index][CONFIG_DMG_SURVIVORS]	=	hFile.GetFloat("damage_survivors",		1.0);
@@ -1676,6 +1707,18 @@ void LoadDataConfig()
 	{
 		g_iConfigDmgType =				hFile.GetNum("damage_type",				0);
 		g_iConfigDmgType =				Clamp(g_iConfigDmgType, 				0, 31);
+		hFile.Rewind();
+	}
+
+	if( hFile.JumpToKey("Mod_Freezer") )
+	{
+		g_fConfigFreezeTime =			hFile.GetFloat("effect_freeze",			1.0);
+		hFile.Rewind();
+	}
+
+	if( hFile.JumpToKey("Mod_Glow") )
+	{
+		g_fConfigGlowBonus =			hFile.GetFloat("damage_bonus",			1.0);
 		hFile.Rewind();
 	}
 
@@ -1793,7 +1836,7 @@ public void F18_OnRoundState(int roundstate)
 // ====================================================================================================
 //					EVENTS - WEAPON EQUIP
 // ====================================================================================================
-public void OnWeaponEquip(int client, int weapon)
+void OnWeaponEquip(int client, int weapon)
 {
 	if( CheckCommandAccess(client, "sm_grenade", 0) == false )
 	{
@@ -1881,7 +1924,7 @@ public void OnWeaponEquip(int client, int weapon)
 	}
 }
 
-public void OnWeaponDrop(int client, int weapon)
+void OnWeaponDrop(int client, int weapon)
 {
 	// Random grenade prefs
 	if( g_iConfigPrefs != 1 && weapon != -1 && IsValidEntity(weapon) && IsValidEdict(weapon) )
@@ -1915,7 +1958,7 @@ int g_iGambl_ValidSample[]	=	{01, 04, 10, 12};
 int g_iMecha_ValidSample[]	=	{01, 02, 09, 10};
 int g_iProdu_ValidSample[]	=	{01, 06, 07};
 
-public Action SoundHook(int clients[64], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags)
+Action SoundHook(int clients[64], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags)
 {
 	// Block molotov sound when throwing. Deleting the molotov straight away causes the sound to loop endlessly.
 	if( g_bBlockSound )
@@ -2031,7 +2074,7 @@ public Action SoundHook(int clients[64], int &numClients, char sample[PLATFORM_M
 // ====================================================================================================
 //					RESET PLUGIN
 // ====================================================================================================
-public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if( client )
@@ -2043,7 +2086,7 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 	}
 }
 
-public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if( client && IsValidEntity(client) )
@@ -2053,19 +2096,20 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 		// Glow mode: Reset color on death
 		if( GetEntProp(client, Prop_Send, "m_glowColorOverride") == GLOW_COLOR )
 		{
+			SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
 			SetEntProp(client, Prop_Send, "m_iGlowType", 0);
 			SetEntProp(client, Prop_Send, "m_glowColorOverride", 0);
 		}
 	}
 }
 
-public void Event_BotReplace(Event event, const char[] name, bool dontBroadcast)
+void Event_BotReplace(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("player"));
 	if( client ) SetCurrentNadePref(client);
 }
 
-public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 {
 	ResetPlugin();
 }
@@ -2287,13 +2331,13 @@ public void OnEntityCreated(int entity, const char[] classname)
 	}
 }
 
-public void OnPostThink(int entity)
+void OnPostThink(int entity)
 {
 	SetEntProp(entity, Prop_Send, "m_fireXDelta", 1, 1, 0);
 	SetEntProp(entity, Prop_Send, "m_fireCount", 1);
 }
 
-public void SpawnPost(int entity)
+void SpawnPost(int entity)
 {
 	// 1 frame later required to get velocity
 	RequestFrame(OnNextFrame, EntIndexToEntRef(entity));
@@ -2302,7 +2346,7 @@ public void SpawnPost(int entity)
 	g_bBlockSound = true;
 }
 
-public void OnNextFrame(int entity)
+void OnNextFrame(int entity)
 {
 	g_bBlockSound = false;
 
@@ -2684,7 +2728,7 @@ void PrjEffects_AntiGravity(int entity)
 	CreateTimer(0.1, TimerSlowdown, EntIndexToEntRef(entity), TIMER_REPEAT);
 }
 
-public Action TimerSlowdown(Handle timer, any entity)
+Action TimerSlowdown(Handle timer, any entity)
 {
 	if( (entity = EntRefToEntIndex(entity)) != INVALID_ENT_REFERENCE )
 	{
@@ -2793,7 +2837,7 @@ void PrjEffects_Weapon(int entity)
 // ====================================================================================================
 //					PROJECTILE EXPLODED
 // ====================================================================================================
-public Action Timer_Detonate(Handle timer, any entity)
+Action Timer_Detonate(Handle timer, any entity)
 {
 	if( g_bCvarAllow && (entity = EntRefToEntIndex(entity)) != INVALID_ENT_REFERENCE )
 	{
@@ -2803,10 +2847,32 @@ public Action Timer_Detonate(Handle timer, any entity)
 	return Plugin_Continue;
 }
 
-public void OnTouch_Detonate(int entity, int other)
+void OnTouch_Detonate(int entity, int other)
 {
 	if( other > MaxClients )
 	{
+		/*
+		// Don't hit attached objects to clients
+		int parent = GetEntPropEnt(other, Prop_Send, "moveparent");
+
+		// Is attached to something attached to clients?
+		while( parent > MaxClients )
+		{
+			parent = GetEntPropEnt(parent, Prop_Send, "moveparent");
+		}
+
+		// Don't allow using when hitting attached object of grenade owner
+		if( parent > 0 && parent <= MaxClients )
+		{
+			int client = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+
+			if( client == parent )
+			{
+				return;
+			}
+		}
+		// */
+
 		static char classname[10];
 		GetEdictClassname(other, classname, sizeof(classname));
 		if( strncmp(classname, "trigger_", 8) == 0 ) return;
@@ -2871,7 +2937,7 @@ void Detonate_Grenade(int entity)
 	}
 }
 
-public Action Timer_Repeat_Explode(Handle timer, any entity)
+Action Timer_Repeat_Explode(Handle timer, any entity)
 {
 	if( g_bCvarAllow && (entity = EntRefToEntIndex(entity)) != INVALID_ENT_REFERENCE )
 	{
@@ -2919,11 +2985,11 @@ void Explode_Effects(int client, int entity, int index, bool fromTimer = true)
 		case INDEX_SMOKE:			Explode_Smoke			(client, entity, index, fromTimer);
 		case INDEX_BLACKHOLE:		Explode_BlackHole		(client, entity, index, fromTimer);
 		case INDEX_FLASHBANG:		Explode_Flashbang		(client, entity, index);
-		case INDEX_SHIELD:			Explode_Shield			(client, entity, index, fromTimer);
+		case INDEX_SHIELD:			Explode_Shield			(entity, index, fromTimer);
 		case INDEX_TESLA:			Explode_Tesla			(client, entity, index, fromTimer);
 		case INDEX_CHEMICAL:		Explode_Chemical		(client, entity, index, fromTimer);
 		case INDEX_FREEZER:			Explode_Freezer			(client, entity, index, fromTimer);
-		case INDEX_MEDIC:			Explode_Medic			(client, entity, index);
+		case INDEX_MEDIC:			Explode_Medic			(entity, index);
 		case INDEX_VAPORIZER:		Explode_Vaporizer		(client, entity, index, fromTimer);
 		case INDEX_EXTINGUISHER:	Explode_Extinguisher	(client, entity, index);
 		case INDEX_GLOW:			Explode_Glow			(client, entity, index);
@@ -2952,7 +3018,7 @@ void Explode_Effects(int client, int entity, int index, bool fromTimer = true)
 // ====================================================================================================
 //					EXPLOSION FX - BOMB
 // ====================================================================================================
-public void Explode_Bomb(int client, int entity, int index)
+void Explode_Bomb(int client, int entity, int index)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -2990,7 +3056,7 @@ public void Explode_Bomb(int client, int entity, int index)
 // ====================================================================================================
 //					EXPLOSION FX - CLUSTER
 // ====================================================================================================
-public void Explode_Cluster(int client, int entity, int index, bool fromTimer)
+void Explode_Cluster(int client, int entity, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3084,7 +3150,7 @@ public void Explode_Cluster(int client, int entity, int index, bool fromTimer)
 	}
 }
 
-public void OnTouchTrigger_Cluster(int entity, int target)
+void OnTouchTrigger_Cluster(int entity, int target)
 {
 	static char classname[10];
 	GetEdictClassname(target, classname, sizeof(classname));
@@ -3118,7 +3184,7 @@ public void OnTouchTrigger_Cluster(int entity, int target)
 // ====================================================================================================
 //					EXPLOSION FX - FIREWORK
 // ====================================================================================================
-public void Explode_Firework(int client, int entity, int index, bool fromTimer)
+void Explode_Firework(int client, int entity, int index, bool fromTimer)
 {
 	// Only want to trigger effects on initial detonation. Timers will fire past the effect life time when deleting, sometimes wanted in other modes.
 	if( fromTimer == false )
@@ -3159,7 +3225,7 @@ public void Explode_Firework(int client, int entity, int index, bool fromTimer)
 // ====================================================================================================
 //					EXPLOSION FX - SMOKE
 // ====================================================================================================
-public void Explode_Smoke(int client, int entity, int index, bool fromTimer)
+void Explode_Smoke(int client, int entity, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3182,7 +3248,7 @@ public void Explode_Smoke(int client, int entity, int index, bool fromTimer)
 // ====================================================================================================
 //					EXPLOSION FX - BLACK HOLE
 // ====================================================================================================
-public void Explode_BlackHole(int client, int entity, int index, bool fromTimer)
+void Explode_BlackHole(int client, int entity, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3213,7 +3279,7 @@ public void Explode_BlackHole(int client, int entity, int index, bool fromTimer)
 // ====================================================================================================
 //					EXPLOSION FX - FLASHBANG
 // ====================================================================================================
-public void Explode_Flashbang(int client, int entity, int index)
+void Explode_Flashbang(int client, int entity, int index)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3246,7 +3312,7 @@ public void Explode_Flashbang(int client, int entity, int index)
 // ====================================================================================================
 //					EXPLOSION FX - SHIELD
 // ====================================================================================================
-public void Explode_Shield(int client, int entity, int index, bool fromTimer)
+void Explode_Shield(int entity, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3271,7 +3337,7 @@ public void Explode_Shield(int client, int entity, int index, bool fromTimer)
 	}
 }
 
-public void OnTouchTriggerShield(int entity, int target)
+void OnTouchTriggerShield(int target)
 {
 	if( target <= MaxClients && GetClientTeam(target) == 2 )
 	{
@@ -3284,7 +3350,7 @@ public void OnTouchTriggerShield(int entity, int target)
 	}
 }
 
-public Action OnShield(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+Action OnShield(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
 {
 	// Check hook time
 	if( GetGameTime() - g_fLastShield[victim] > 0.5 )
@@ -3306,7 +3372,7 @@ public Action OnShield(int victim, int &attacker, int &inflictor, float &damage,
 // ====================================================================================================
 //					EXPLOSION FX - TESLA
 // ====================================================================================================
-public void Explode_Tesla(int client, int grenade, int index, bool fromTimer)
+void Explode_Tesla(int client, int grenade, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3389,7 +3455,7 @@ void TeslaShock(int grenade, int target)
 // ====================================================================================================
 //					EXPLOSION FX - CHEMICAL
 // ====================================================================================================
-public void Explode_Chemical(int client, int entity, int index, bool fromTimer)
+void Explode_Chemical(int client, int entity, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3438,7 +3504,7 @@ public void Explode_Chemical(int client, int entity, int index, bool fromTimer)
 	}
 }
 
-public Action OnAcidDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+Action OnAcidDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
 {
 	// if( damagetype == (DMG_ENERGYBEAM | DMG_RADIATION) || damagetype == (DMG_ENERGYBEAM | DMG_RADIATION | DMG_PREVENT_PHYSICS_FORCE) )
 	// 1024 (1<<10) DMG_ENERGYBEAM
@@ -3494,7 +3560,7 @@ public Action OnAcidDamage(int victim, int &attacker, int &inflictor, float &dam
 // ====================================================================================================
 //					EXPLOSION FX - FREEZER
 // ====================================================================================================
-public void Explode_Freezer(int client, int entity, int index, bool fromTimer)
+void Explode_Freezer(int client, int entity, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3526,7 +3592,7 @@ public void Explode_Freezer(int client, int entity, int index, bool fromTimer)
 	}
 }
 
-public void OnTouchTriggerFreezer2(int entity, int target)
+void OnTouchTriggerFreezer2(int entity, int target)
 {
 	if( target > MaxClients )
 	{
@@ -3549,7 +3615,7 @@ public void OnTouchTriggerFreezer2(int entity, int target)
 	}
 }
 
-public void OnTouchTriggerFreezer(int entity, int target)
+void OnTouchTriggerFreezer(int target)
 {
 	if( target <= MaxClients )
 	{
@@ -3575,7 +3641,7 @@ public void OnTouchTriggerFreezer(int entity, int target)
 
 				if( pass )
 				{
-					if( GetGameTime() - g_fLastFreeze[target] > 1.0 )
+					if( GetGameTime() - g_fLastFreeze[target] > g_fConfigFreezeTime )
 					{
 						CreateTimer(0.5, TimerFreezer, GetClientUserId(target), TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 
@@ -3589,6 +3655,7 @@ public void OnTouchTriggerFreezer(int entity, int target)
 
 					if( GetEntityMoveType(target) != MOVETYPE_NONE )
 						SetEntityMoveType(target, MOVETYPE_NONE); // Has to be outside the timer, if player staggers they'll be able to move, so constantly apply.
+
 					g_fLastFreeze[target] = GetGameTime();
 				}
 			}
@@ -3596,12 +3663,15 @@ public void OnTouchTriggerFreezer(int entity, int target)
 	}
 }
 
-public Action TimerFreezer(Handle timer, any client)
+Action TimerFreezer(Handle timer, any client)
 {
 	if( (client = GetClientOfUserId(client)) && IsClientInGame(client) && IsPlayerAlive(client) )
 	{
-		if( GetGameTime() - g_fLastFreeze[client] < 1.0 )
+		if( GetGameTime() - g_fLastFreeze[client] < g_fConfigFreezeTime )
 		{
+			if( GetEntityMoveType(client) != MOVETYPE_NONE )
+				SetEntityMoveType(client, MOVETYPE_NONE);
+
 			return Plugin_Continue;
 		}
 
@@ -3618,7 +3688,7 @@ public Action TimerFreezer(Handle timer, any client)
 // ====================================================================================================
 //					EXPLOSION FX - MEDIC
 // ====================================================================================================
-public void Explode_Medic(int client, int entity, int index)
+void Explode_Medic(int entity, int index)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3809,7 +3879,7 @@ int GetMaxReviveCount()
 // ====================================================================================================
 //					EXPLOSION FX - VAPORIZER
 // ====================================================================================================
-public void Explode_Vaporizer(int client, int entity, int index, bool fromTimer)
+void Explode_Vaporizer(int client, int entity, int index, bool fromTimer)
 {
 	// Grenade Pos
 	static float vPos[3];
@@ -3923,7 +3993,7 @@ int AttachFakeRagdoll(int target)
 	return entity;
 }
 
-public Action OnCommonDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+Action OnCommonDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
 {
 	// Block dissolver damage to common, otherwise server will crash.
 	if( damage == 10000 && damagetype == (g_bLeft4Dead2 ? 5982249 : 33540137) )
@@ -4935,16 +5005,19 @@ bool GrenadeSpecificExplosion(int target, int client, int entity, int index, int
 	{
 		if( type == TARGET_SURVIVOR )
 		{
-			MakeVectorFromPoints(vEnd, vPos, vEnd);
-			NormalizeVector(vEnd, vEnd);
-			ScaleVector(vEnd, fDistance);
+			if( GetEntPropEnt(client, Prop_Send, "m_hGroundEntity") != -1 ) // Must be on ground
+			{
+				MakeVectorFromPoints(vEnd, vPos, vEnd);
+				NormalizeVector(vEnd, vEnd);
+				ScaleVector(vEnd, fDistance);
 
-			if( fDistance < 150 && GetEntProp(target, Prop_Send, "m_fFlags") & FL_ONGROUND == 0 ) // Reduce height when in air near center
-				vEnd[2] = 100.0;
-			else
-				vEnd[2] = 300.0;
+				if( fDistance < 150 && GetEntProp(target, Prop_Send, "m_fFlags") & FL_ONGROUND == 0 ) // Reduce height when in air near center
+					vEnd[2] = 100.0;
+				else
+					vEnd[2] = 300.0;
 
-			TeleportEntity(target, NULL_VECTOR, NULL_VECTOR, vEnd);
+				TeleportEntity(target, NULL_VECTOR, NULL_VECTOR, vEnd);
+			}
 		}
 		else
 		{
@@ -5047,6 +5120,9 @@ bool GrenadeSpecificExplosion(int target, int client, int entity, int index, int
 	{
 		if( g_GrenadeType[target] == 0 && GetEntProp(target, Prop_Send, "m_glowColorOverride") == 0 ) // Avoid conflict with Mutant Zombies and already glowing.
 		{
+			if( g_fConfigGlowBonus != 1.0 )
+				SDKHook(target, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
+
 			SetEntProp(target, Prop_Send, "m_nGlowRange", RoundFloat(g_GrenadeData[index - 1][CONFIG_RANGE] * 4));
 			SetEntProp(target, Prop_Send, "m_iGlowType", 3); // 2 = Requires line of sight. 3 = Glow through walls.
 			SetEntProp(target, Prop_Send, "m_glowColorOverride", GLOW_COLOR);
@@ -5088,7 +5164,7 @@ bool GrenadeSpecificExplosion(int target, int client, int entity, int index, int
 	return true;
 }
 
-public Action TimerResetGravity(Handle timer, any target)
+Action TimerResetGravity(Handle timer, any target)
 {
 	target = GetClientOfUserId(target);
 	if( target && IsClientInGame(target) )
@@ -5105,17 +5181,30 @@ public Action TimerResetGravity(Handle timer, any target)
 	return Plugin_Stop;
 }
 
-public Action TimerResetGlow(Handle timer, any target)
+Action TimerResetGlow(Handle timer, any target)
 {
 	target = ValidTargetRef(target);
 	if( target && GetEntProp(target, Prop_Send, "m_glowColorOverride") == GLOW_COLOR )
 	{
+		SDKUnhook(target, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
 		SetEntProp(target, Prop_Send, "m_nGlowRange", 0);
 		SetEntProp(target, Prop_Send, "m_iGlowType", 0);
 		SetEntProp(target, Prop_Send, "m_glowColorOverride", 0);
 	}
 
 	return Plugin_Continue;
+}
+
+Action OnTakeDamageGlow(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+{
+	if( GetEntProp(victim, Prop_Send, "m_glowColorOverride") != GLOW_COLOR )
+	{
+		SDKUnhook(victim, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
+		return Plugin_Continue;
+	}
+
+	damage *= g_fConfigGlowBonus;
+	return Plugin_Changed;
 }
 
 int ValidTargetRef(int target)
@@ -5262,7 +5351,7 @@ void CreateFires(int target, int client, bool gascan)
 	}
 }
 
-public Action OnTransmitExplosive(int entity, int client)
+Action OnTransmitExplosive(int entity, int client)
 {
 	return Plugin_Handled;
 }
@@ -5319,7 +5408,7 @@ void TriggerMultipleDamage(int entity, int index, float range, float vPos[3])
 		SDKHook(trigger, SDKHook_StartTouch, OnTouchTriggerFreezer2);
 }
 
-public void OnTouchTriggerMultple(int trigger, int target)
+void OnTouchTriggerMultple(int trigger, int target)
 {
 	// Check duration
 	int index = g_GrenadeType[trigger] - 1;
@@ -5329,13 +5418,13 @@ public void OnTouchTriggerMultple(int trigger, int target)
 	GetEdictClassname(target, classname, sizeof(classname));
 	if(
 		(index == INDEX_SHIELD && strcmp(classname, "player") == 0) ||
-		(index != INDEX_SHIELD && strcmp(classname, "player") == 0 || strcmp(classname, "infected") == 0 || strcmp(classname, "witch") == 0)
+		(index != INDEX_SHIELD && (strcmp(classname, "player") == 0 || strcmp(classname, "infected") == 0 || strcmp(classname, "witch") == 0))
 	)
 	{
 		switch( index )
 		{
-			case INDEX_FREEZER:	OnTouchTriggerFreezer	(trigger, target);
-			case INDEX_SHIELD:	OnTouchTriggerShield	(trigger, target);
+			case INDEX_FREEZER:	OnTouchTriggerFreezer	(target);
+			case INDEX_SHIELD:	OnTouchTriggerShield	(target);
 		}
 	}
 }
@@ -5555,7 +5644,7 @@ stock bool IsVisibleTo(float position[3], float targetposition[3])
 	return isVisible;
 }
 
-public bool _TraceFilter(int entity, int contentsMask)
+bool _TraceFilter(int entity, int contentsMask)
 {
 	if( !entity || !IsValidEntity(entity) ) // dont let WORLD, or invalid ents be hit
 		return false;
@@ -5597,7 +5686,7 @@ bool SetTeleportEndPoint(int client, float vPos[3])
 	return true;
 }
 
-public bool ExcludeSelf_Filter(int entity, int contentsMask, any client)
+bool ExcludeSelf_Filter(int entity, int contentsMask, any client)
 {
 	if( entity == client )
 		return false;
