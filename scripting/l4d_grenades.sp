@@ -1,6 +1,6 @@
 /*
 *	Prototype Grenades
-*	Copyright (C) 2022 Silvers
+*	Copyright (C) 2023 Silvers
 *
 *	This program is free software: you can redistribute it and/or modify
 *	it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.44"
+#define PLUGIN_VERSION 		"1.45"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.45 (07-Nov-2023)
+	- Fixed the "Bullets" type damage becoming extremely high. Thanks to "HarryPotter" for finding and fixing.
 
 1.44 (15-Jun-2022)
 	- Added data setting "effect_freeze" for the "Freezer" type to set how long Survivors and Special Infected are frozen for. Requested by "weakestL4D2enjoyer".
@@ -280,7 +283,7 @@
 	native int LMC_GetEntityOverlayModel(int iEntity);
 #endif
 
-bool	bLMC_Available;
+bool	g_bLMC_Available;
 //LMC
 
 
@@ -680,7 +683,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 public void OnLibraryAdded(const char[] sName)
 {
 	if( strcmp(sName, "LMCEDeathHandler") == 0 )
-		bLMC_Available = true;
+		g_bLMC_Available = true;
 	else if( strcmp(sName, "left4dhooks") == 0 )
 		g_bLeft4DHooks = true;
 	else if( g_bLeft4Dead2 && strcmp(sName, "l4d2_airstrike") == 0 )
@@ -696,7 +699,7 @@ public void OnLibraryAdded(const char[] sName)
 public void OnLibraryRemoved(const char[] sName)
 {
 	if( strcmp(sName, "LMCEDeathHandler") == 0 )
-		bLMC_Available = false;
+		g_bLMC_Available = false;
 	else if( strcmp(sName, "left4dhooks") == 0 )
 		g_bLeft4DHooks = false;
 	else if( g_bLeft4Dead2 && strcmp(sName, "l4d2_airstrike") == 0 )
@@ -2728,7 +2731,7 @@ void PrjEffects_AntiGravity(int entity)
 	CreateTimer(0.1, TimerSlowdown, EntIndexToEntRef(entity), TIMER_REPEAT);
 }
 
-Action TimerSlowdown(Handle timer, any entity)
+Action TimerSlowdown(Handle timer, int entity)
 {
 	if( (entity = EntRefToEntIndex(entity)) != INVALID_ENT_REFERENCE )
 	{
@@ -2837,7 +2840,7 @@ void PrjEffects_Weapon(int entity)
 // ====================================================================================================
 //					PROJECTILE EXPLODED
 // ====================================================================================================
-Action Timer_Detonate(Handle timer, any entity)
+Action Timer_Detonate(Handle timer, int entity)
 {
 	if( g_bCvarAllow && (entity = EntRefToEntIndex(entity)) != INVALID_ENT_REFERENCE )
 	{
@@ -2937,7 +2940,7 @@ void Detonate_Grenade(int entity)
 	}
 }
 
-Action Timer_Repeat_Explode(Handle timer, any entity)
+Action Timer_Repeat_Explode(Handle timer, int entity)
 {
 	if( g_bCvarAllow && (entity = EntRefToEntIndex(entity)) != INVALID_ENT_REFERENCE )
 	{
@@ -3663,7 +3666,7 @@ void OnTouchTriggerFreezer(int target)
 	}
 }
 
-Action TimerFreezer(Handle timer, any client)
+Action TimerFreezer(Handle timer, int client)
 {
 	if( (client = GetClientOfUserId(client)) && IsClientInGame(client) && IsPlayerAlive(client) )
 	{
@@ -3914,7 +3917,7 @@ void DissolveCommon(int client, int entity, int target, float fDamage)
 
 	// Dissolve
 	int iOverlayModel = -1;
-	if( bLMC_Available )
+	if( g_bLMC_Available )
 		iOverlayModel = LMC_GetEntityOverlayModel(target);
 
 	if( target <= MaxClients )
@@ -4135,7 +4138,7 @@ void Explode_Bullets(int client, int entity, int index, bool fromTimer)
 	Handle trace;
 	static char classname[16];
 	static float vEnd[3], vAng[3];
-	float fDamage = g_GrenadeData[index - 1][CONFIG_DAMAGE];
+	float fDamage;
 	int particle;
 	int target;
 	int targ;
@@ -4144,6 +4147,7 @@ void Explode_Bullets(int client, int entity, int index, bool fromTimer)
 
 	for( int x = 1; x <= 8; x++ )
 	{
+		fDamage = g_GrenadeData[index - 1][CONFIG_DAMAGE];
 		vAng[0] = GetRandomFloat(-20.0, 5.0); // How far up/down tracers point (0=Horizontal, -90=Up.)
 		vAng[1] = GetRandomFloat(-180.0, 180.0); // Random direction
 
@@ -5164,7 +5168,7 @@ bool GrenadeSpecificExplosion(int target, int client, int entity, int index, int
 	return true;
 }
 
-Action TimerResetGravity(Handle timer, any target)
+Action TimerResetGravity(Handle timer, int target)
 {
 	target = GetClientOfUserId(target);
 	if( target && IsClientInGame(target) )
@@ -5181,7 +5185,7 @@ Action TimerResetGravity(Handle timer, any target)
 	return Plugin_Stop;
 }
 
-Action TimerResetGlow(Handle timer, any target)
+Action TimerResetGlow(Handle timer, int target)
 {
 	target = ValidTargetRef(target);
 	if( target && GetEntProp(target, Prop_Send, "m_glowColorOverride") == GLOW_COLOR )
@@ -5686,7 +5690,7 @@ bool SetTeleportEndPoint(int client, float vPos[3])
 	return true;
 }
 
-bool ExcludeSelf_Filter(int entity, int contentsMask, any client)
+bool ExcludeSelf_Filter(int entity, int contentsMask, int client)
 {
 	if( entity == client )
 		return false;
