@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.45"
+#define PLUGIN_VERSION 		"1.46"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.46 (22-Nov-2023)
+	- Fixed not pushing the Witch. Thanks to "HarryPotter" for finding and fixing.
 
 1.45 (07-Nov-2023)
 	- Fixed the "Bullets" type damage becoming extremely high. Thanks to "HarryPotter" for finding and fixing.
@@ -4555,7 +4558,7 @@ void PushCommon(int client, int target, float vPos[3], bool common = true)
 	else if( common )						DispatchKeyValue(g_iEntityHurt, "DamageType", "536870912");	// DMG_BUCKSHOT (1<<29)	// Common L4D1
 	else									DispatchKeyValue(g_iEntityHurt, "DamageType", "64");		// DMG_BLAST (1<<6) // Witch
 
-	DispatchKeyValue(g_iEntityHurt, "Damage", "0");
+	DispatchKeyValue(g_iEntityHurt, "Damage", "1");
 	DispatchKeyValue(target, "targetname", "silvershot");
 	TeleportEntity(g_iEntityHurt, vPos, NULL_VECTOR, NULL_VECTOR);
 	AcceptEntityInput(g_iEntityHurt, "Hurt", client, client);
