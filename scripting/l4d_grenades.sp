@@ -1,6 +1,6 @@
 /*
 *	Prototype Grenades
-*	Copyright (C) 2023 Silvers
+*	Copyright (C) 2024 Silvers
 *
 *	This program is free software: you can redistribute it and/or modify
 *	it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.46"
+#define PLUGIN_VERSION 		"1.47"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,10 @@
 
 ========================================================================================
 	Change Log:
+
+1.47 (21-Apr-2024)
+	- Added data setting "effect_types" for the "Extinguisher" type to set if the grenade can remove fires, boomer effect and Spitter acid. Requested by "blackbread183".
+	- Fixed duplicate messages when equipping a grenade.
 
 1.46 (22-Nov-2023)
 	- Fixed not pushing the Witch. Thanks to "HarryPotter" for finding and fixing.
@@ -297,6 +301,9 @@ bool	g_bLMC_Available;
 #define GAMEDATA				"l4d_grenades"
 #define GLOW_COLOR				38655 // Glow Mode color: GetColor("255 150 0");
 
+#define EXT_FIRES (1<<0)
+#define EXT_VOMIT (1<<1)
+#define EXT_SPITS (1<<2)
 
 
 // EFFECTS
@@ -535,6 +542,7 @@ static char g_sWeaponModels2[MAX_WEAPONS2][] =
 #define SHAKE_RANGE			150.0									// How far to increase the shake from the effect range.
 
 float	g_fLastTesla[MAX_ENTS];										// Last time damage taken, used by Tesla mode.
+float	g_fLastEquip[MAXPLAYERS+1];									// Last time a weapon was equipped, prevent duplicate messages
 float	g_fLastFreeze[MAXPLAYERS+1];								// Last time in the freezer area.
 float	g_fLastShield[MAXPLAYERS+1];								// Last time in the shield, for damage hook.
 float	g_fLastUse[MAXPLAYERS+1];									// Clients last time pressing +USE.
@@ -547,6 +555,7 @@ int		g_GrenadeSlot[MAX_TYPES][2];								// [0]=L4D2, [1]=L4D1. Which grenade sl
 int		g_GrenadeTarg[MAX_TYPES];									// Who the grenade affects.
 int		g_GrenadeType[2048];										// The type of grenade selected.
 int		g_BeamSprite, g_HaloSprite;									// Beam Rings
+int		g_fConfigExtEffect;											// Extinguisher - Effect modes
 float	g_fConfigAcidComm;											// Chemical Mode - Acid damage - Common
 float	g_fConfigAcidSelf;											// Chemical Mode - Acid damage - Self
 float	g_fConfigAcidSpec;											// Chemical Mode - Acid damage - Special Infected
@@ -573,9 +582,12 @@ UserMsg	g_FadeUserMsgId;
 
 
 
-// Optional native from Left4DHooks
-native int L4D_AngularVelocity(int entity, const float vecAng[3]);
+// Optional natives related
 bool g_bLeft4DHooks, g_bAirstrike, g_bAirstrikeValid;
+
+// Optional native from Left4DHooks
+native void L4D_OnITExpired(int client);
+native int L4D_AngularVelocity(int entity, const float vecAng[3]);
 
 // Optional native from L4D2 Airstrike
 native void F18_ShowAirstrike(float origin[3], float direction);
@@ -1728,6 +1740,13 @@ void LoadDataConfig()
 		hFile.Rewind();
 	}
 
+	if( hFile.JumpToKey("Mod_Glow") )
+	{
+		g_fConfigExtEffect =			hFile.GetNum("effect_types",			7);
+		g_fConfigExtEffect =			Clamp(g_fConfigExtEffect, 				1, 7);
+		hFile.Rewind();
+	}
+
 	if( hFile.JumpToKey("Mod_Weapon") )
 	{
 		char sConfigWeapons[256];
@@ -1905,8 +1924,10 @@ void OnWeaponEquip(int client, int weapon)
 			g_GrenadeType[weapon] = g_iClientGrenadeType[client] + 1; // Store type
 
 			// Hints
-			if( g_bCvarAllow && g_iConfigMsgs && !IsFakeClient(client) )
+			if( g_bCvarAllow && g_iConfigMsgs && g_fLastEquip[client] < GetGameTime() && !IsFakeClient(client) )
 			{
+				g_fLastEquip[client] = GetGameTime() + 0.5;
+
 				static char translation[256];
 				Format(translation, sizeof(translation), "GrenadeMod_Title_%d", g_iClientGrenadeType[client]);
 
@@ -2125,6 +2146,7 @@ void ResetPlugin(bool all = false)
 	for( int i = 1; i <= MaxClients; i++ )
 	{
 		g_bChangingTypesMenu[i] = false;
+		g_fLastEquip[i] = 0.0;
 		g_fLastFreeze[i] = 0.0;
 		g_fLastShield[i] = 0.0;
 		g_fLastUse[i] = 0.0;
@@ -4037,25 +4059,53 @@ void Explode_Extinguisher(int client, int entity, int index)
 		case 3: PlaySound(entity, SOUND_SPLASH3);
 	}
 
-	// Extinguish fires
 	float vEnd[3];
-	int inferno = -1;
-	while( (inferno = FindEntityByClassname(inferno, "inferno")) != INVALID_ENT_REFERENCE )
+
+	// Extinguish fires
+	if( g_fConfigExtEffect & EXT_FIRES )
 	{
-		GetEntPropVector(inferno, Prop_Data, "m_vecAbsOrigin", vEnd);
-		if( GetVectorDistance(vPos, vEnd) < g_GrenadeData[INDEX_EXTINGUISHER][CONFIG_RANGE] )
+		int inferno = -1;
+		while( (inferno = FindEntityByClassname(inferno, "inferno")) != INVALID_ENT_REFERENCE )
 		{
-			RemoveEntity(inferno);
+			GetEntPropVector(inferno, Prop_Data, "m_vecAbsOrigin", vEnd);
+			if( GetVectorDistance(vPos, vEnd) < g_GrenadeData[INDEX_EXTINGUISHER][CONFIG_RANGE] )
+			{
+				RemoveEntity(inferno);
+			}
+		}
+
+		inferno = -1;
+		while( (inferno = FindEntityByClassname(inferno, "fire_cracker_blast")) != INVALID_ENT_REFERENCE )
+		{
+			GetEntPropVector(inferno, Prop_Data, "m_vecAbsOrigin", vEnd);
+			if( GetVectorDistance(vPos, vEnd) < g_GrenadeData[INDEX_EXTINGUISHER][CONFIG_RANGE] )
+			{
+				RemoveEntity(inferno);
+			}
 		}
 	}
 
-	inferno = -1;
-	while( (inferno = FindEntityByClassname(inferno, "fire_cracker_blast")) != INVALID_ENT_REFERENCE )
+	// Extinguish Spitter acid
+	if( g_bLeft4Dead2 && g_fConfigExtEffect & EXT_SPITS )
 	{
-		GetEntPropVector(inferno, Prop_Data, "m_vecAbsOrigin", vEnd);
-		if( GetVectorDistance(vPos, vEnd) < g_GrenadeData[INDEX_EXTINGUISHER][CONFIG_RANGE] )
+		int swarm = -1;
+		while( (swarm = FindEntityByClassname(swarm, "insect_swarm")) != INVALID_ENT_REFERENCE )
 		{
-			RemoveEntity(inferno);
+			GetEntPropVector(swarm, Prop_Data, "m_vecAbsOrigin", vEnd);
+			if( GetVectorDistance(vPos, vEnd) < g_GrenadeData[INDEX_EXTINGUISHER][CONFIG_RANGE] )
+			{
+				RemoveEntity(swarm);
+			}
+		}
+
+		swarm = -1;
+		while( (swarm = FindEntityByClassname(swarm, "insect_swarm")) != INVALID_ENT_REFERENCE )
+		{
+			GetEntPropVector(swarm, Prop_Data, "m_vecAbsOrigin", vEnd);
+			if( GetVectorDistance(vPos, vEnd) < g_GrenadeData[INDEX_EXTINGUISHER][CONFIG_RANGE] )
+			{
+				RemoveEntity(swarm);
+			}
 		}
 	}
 }
@@ -5164,7 +5214,16 @@ bool GrenadeSpecificExplosion(int target, int client, int entity, int index, int
 	// ==================================================
 	else if( index -1 == INDEX_EXTINGUISHER )
 	{
-		ExtinguishEntity(target);
+		if( g_fConfigExtEffect & EXT_FIRES )
+		{
+			ExtinguishEntity(target);
+		}
+
+		if( g_bLeft4DHooks && g_fConfigExtEffect & EXT_VOMIT )
+		{
+			L4D_OnITExpired(target);
+		}
+
 		return false;
 	}
 
