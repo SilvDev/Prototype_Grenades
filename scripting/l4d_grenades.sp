@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.47"
+#define PLUGIN_VERSION 		"1.48"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,10 @@
 
 ========================================================================================
 	Change Log:
+
+1.48 (30-Apr-2024)
+	- Fixed physics objects not being pushed or broken if set within the config.
+	- Fixed random rare crashes on map change. Thanks to "JustMadMan" for reporting.
 
 1.47 (21-Apr-2024)
 	- Added data setting "effect_types" for the "Extinguisher" type to set if the grenade can remove fires, boomer effect and Spitter acid. Requested by "blackbread183".
@@ -4413,11 +4417,12 @@ void Explode_Weapon(int client, int entity, int index)
 			ThrowError("Failed to create entity 'weapon_melee'.");
 
 		DispatchKeyValue(entity, "melee_script_name", g_sWeapons2[model]);
-		DispatchSpawn(entity);
 
 		vPos[2] += 20.0;
 		TeleportEntity(entity, vPos, vAng, NULL_VECTOR);
 		vPos[2] -= 40.0;
+
+		DispatchSpawn(entity);
 	} else {
 		// Weapons:
 		entity = -1;
@@ -5027,10 +5032,11 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 			// FloatToString(range_damage, sTemp, sizeof(sTemp));
 			// DispatchKeyValue(explo, "iRadiusOverride", sTemp);
 			DispatchKeyValueFloat(explo, "iMagnitude", fDamage * 2);
-			DispatchKeyValue(explo, "spawnflags", "18301");
+			// DispatchKeyValue(explo, "spawnflags", "18301"); // This did not allow physics objects to be pushed or broken, at least when testing in L4D2
+			DispatchKeyValue(explo, "spawnflags", "1916");
 			SetEntPropEnt(explo, Prop_Send, "m_hOwnerEntity", client);
-			DispatchSpawn(explo);
 			TeleportEntity(explo, vPos, NULL_VECTOR, NULL_VECTOR);
+			DispatchSpawn(explo);
 			AcceptEntityInput(explo, "Explode");
 
 			InputKill(explo, 0.3);
@@ -5331,11 +5337,11 @@ void CreateShake(float intensity, float range, float vPos[3])
 	FloatToString(range, sTemp, sizeof(sTemp));
 	DispatchKeyValue(entity, "radius", sTemp);
 	DispatchKeyValue(entity, "spawnflags", "8");
+	TeleportEntity(entity, vPos, NULL_VECTOR, NULL_VECTOR);
 	DispatchSpawn(entity);
 	ActivateEntity(entity);
 	AcceptEntityInput(entity, "Enable");
 
-	TeleportEntity(entity, vPos, NULL_VECTOR, NULL_VECTOR);
 	AcceptEntityInput(entity, "StartShake");
 	RemoveEdict(entity);
 }
@@ -5444,10 +5450,8 @@ void TriggerMultipleDamage(int entity, int index, float range, float vPos[3])
 	DispatchKeyValue(trigger, "allowincap", "1");
 	DispatchKeyValue(trigger, "allowghost", "0");
 	SetEntityModel(trigger, MODEL_BOUNDING);
-	DispatchSpawn(trigger);
 
 	g_GrenadeType[trigger] = index;
-	SetEntProp(trigger, Prop_Send, "m_nSolidType", 2);
 
 	// Box size
 	range /= 2;
@@ -5463,6 +5467,10 @@ void TriggerMultipleDamage(int entity, int index, float range, float vPos[3])
 	SetEntPropVector(trigger, Prop_Send, "m_vecMaxs", vMaxs);
 
 	TeleportEntity(trigger, vPos, NULL_VECTOR, NULL_VECTOR);
+	DispatchSpawn(trigger);
+
+	SetEntProp(trigger, Prop_Send, "m_nSolidType", 2);
+
 	SetVariantString("!activator");
 	AcceptEntityInput(trigger, "SetParent", entity);
 
@@ -5514,10 +5522,9 @@ int MakeLightDynamic(int target, const float vPos[3])
 	DispatchKeyValueFloat(entity, "spotlight_radius", 32.0);
 	DispatchKeyValueFloat(entity, "distance", 600.0);
 	DispatchKeyValue(entity, "style", "6");
+	TeleportEntity(entity, vPos, NULL_VECTOR, NULL_VECTOR);
 	DispatchSpawn(entity);
 	AcceptEntityInput(entity, "TurnOff");
-
-	TeleportEntity(entity, vPos, NULL_VECTOR, NULL_VECTOR);
 
 	// Attach
 	if( target )
@@ -5551,9 +5558,9 @@ void MakeEnvSteam(int target, const float vPos[3], const float vAng[3], const ch
 	DispatchKeyValue(entity, "JetLength", "100");
 	DispatchKeyValue(entity, "renderamt", "150");
 	DispatchKeyValue(entity, "InitialState", "1");
+	TeleportEntity(entity, vPos, vAng, NULL_VECTOR);
 	DispatchSpawn(entity);
 	AcceptEntityInput(entity, "TurnOn");
-	TeleportEntity(entity, vPos, vAng, NULL_VECTOR);
 
 	// Attach
 	if( target )
@@ -5621,10 +5628,10 @@ int DisplayParticle(int target, const char[] sParticle, const float vPos[3], con
 	}
 
 	DispatchKeyValue(entity, "effect_name", sParticle);
+	TeleportEntity(entity, vPos, vAng, NULL_VECTOR);
 	DispatchSpawn(entity);
 	ActivateEntity(entity);
 	AcceptEntityInput(entity, "start");
-	TeleportEntity(entity, vPos, vAng, NULL_VECTOR);
 
 	// Refire
 	if( refire )
