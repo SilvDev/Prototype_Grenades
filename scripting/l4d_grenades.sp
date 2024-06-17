@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.48"
+#define PLUGIN_VERSION 		"1.49"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,10 @@
 
 ========================================================================================
 	Change Log:
+
+1.49 (17-Jun-2024)
+	- Fixed the "Chemical" type not damaging Special Infected. Thanks to "Leobrr" for reporting.
+	- Fixed conflict with "Detonation Force" plugin flinging players on grenade explosion. Thanks to "JustMadMan" for reporting.
 
 1.48 (30-Apr-2024)
 	- Fixed physics objects not being pushed or broken if set within the config.
@@ -4547,7 +4551,7 @@ int CreateProjectile(int entity, int client, int index)
 	float time = g_GrenadeData[index - 1][CONFIG_TIME];
 
 	// + 10 to account for flight time before impact.
-	InputKill(entity, (time > tick ? time : tick) + g_GrenadeData[index - 1][CONFIG_FUSE] + 10.0);
+	InputKill(entity, (time > tick ? time : tick) + g_GrenadeData[index - 1][CONFIG_FUSE] + 10.0, true);
 
 	return entity;
 }
@@ -4656,8 +4660,6 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 	index -= 1;
 	int targ = g_GrenadeTarg[index];
 	if( targ == 0 ) return;
-
-
 
 	// Damage tick timeout. Tesla and Vaporizer have their own timeout.
 	if( index != INDEX_TESLA && index != INDEX_VAPORIZER )
@@ -4777,7 +4779,7 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 								fDamage = 0.0;
 
 							// Damage
-							if( fDamage != 0.0 && (!g_bLeft4Dead2 || index != INDEX_CHEMICAL) ) // Chemical mode in L4D2 only needs to damage non-survivor, the spit already damages them.
+							if( fDamage != 0.0 && (!g_bLeft4Dead2 || (team == 3 || index != INDEX_CHEMICAL)) ) // Chemical mode in L4D2 only needs to damage non-survivor, the spit already damages them.
 							{
 								clients[flashcount++] = i;
 
@@ -5428,13 +5430,23 @@ Action OnTransmitExplosive(int entity, int client)
 	return Plugin_Handled;
 }
 
-void InputKill(int entity, float time)
+void InputKill(int entity, float time, bool changeClass = false)
 {
+	if( changeClass )
+	{
+		HookSingleEntityOutput(entity, "OnUser4", OnUser4);
+	}
+
 	static char temp[40];
 	Format(temp, sizeof(temp), "OnUser4 !self:Kill::%f:-1", time);
 	SetVariantString(temp);
 	AcceptEntityInput(entity, "AddOutput");
 	AcceptEntityInput(entity, "FireUser4");
+}
+
+void OnUser4(const char[] output, int caller, int activator, float delay)
+{
+	DispatchKeyValue(caller, "classname", "weapon_pistol");
 }
 
 
