@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.49"
+#define PLUGIN_VERSION 		"1.50"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,11 @@
 
 ========================================================================================
 	Change Log:
+
+1.50 (04-Aug-2024)
+	- Changed the "Firework" and "Fire Cluster" modes to support setting the "targets" key in the data config. Requested by "Voevoda".
+	- Fixed the "Cluster" mode conflicting with the "Detonation Force" plugin.
+	- Fixed damage affecting clients when it's not supposed to, due to the last few updates.
 
 1.49 (17-Jun-2024)
 	- Fixed the "Chemical" type not damaging Special Infected. Thanks to "Leobrr" for reporting.
@@ -611,9 +616,11 @@ int g_iTotalChance, g_iChances[MAX_WEAPONS2 + MAX_MELEE];
 Handle g_hSDK_DissolveCreate, g_hSDK_ActivateSpit, g_hSDK_StaggerClient, g_hSDK_DeafenClient;
 ConVar g_hCvarAllow, g_hDecayDecay, g_hCvarMPGameMode, g_hCvarModes, g_hCvarModesOff, g_hCvarModesTog;
 bool g_bCvarAllow, g_bMapStarted, g_bLeft4Dead2, g_bLateLoad, g_bHookFire, g_bBlockHook, g_bBlockSound;
-int g_iClassTank, m_maxHealth;
+int g_iClassTank, m_maxHealth, g_iFireType;
 Handle g_hCookie;
 ArrayList g_hAlAcid;
+ArrayList g_hAlFire;
+ArrayList g_hAlFireType;
 bool g_bAcidSpawn;
 
 enum
@@ -893,7 +900,11 @@ public void OnPluginStart()
 	g_iClassTank = g_bLeft4Dead2 ? 8 : 5;
 
 	if( g_bLeft4Dead2 )
+	{
 		g_hAlAcid = new ArrayList();
+		g_hAlFire = new ArrayList();
+		g_hAlFireType = new ArrayList();
+	}
 }
 
 public void OnPluginEnd()
@@ -1025,12 +1036,12 @@ void DoSpawnCommand(int client, int args, bool projectile)
 	int entity = CreateEntityByName("pipe_bomb_projectile");
 	if( entity != -1 )
 	{
-		SetEntityModel(entity, MODEL_SPRAYCAN);
 		g_GrenadeType[entity] = index;								// Store mode type
+		g_iClientGrenadeType[client] = 0;
+		SetEntityModel(entity, MODEL_SPRAYCAN);
 		SetEntPropEnt(entity, Prop_Send, "m_hThrower", client);		// Store owner
 		SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);	// Store owner
 		SetEntPropVector(entity, Prop_Send, "m_vInitialVelocity", view_as<float>({ 0.0, 0.0, 1.0 }));
-		g_iClientGrenadeType[client] = index;
 
 		float vPos[3];
 		if( projectile )
@@ -1311,7 +1322,7 @@ void IsAllowed()
 				// Chemical Mode - Acid damage
 				if( g_bLeft4Dead2 )
 				{
-					SDKHook(i, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+					SDKHook(i, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
 				}
 			}
 		}
@@ -1322,13 +1333,19 @@ void IsAllowed()
 			int entity = -1;
 			while( (entity = FindEntityByClassname(entity, "infected")) != INVALID_ENT_REFERENCE )
 			{
-				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+				if( g_bLeft4Dead2 )
+				{
+					SDKHook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
+				}
 			}
 
 			entity = -1;
 			while( (entity = FindEntityByClassname(entity, "witch")) != INVALID_ENT_REFERENCE )
 			{
-				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+				if( g_bLeft4Dead2 )
+				{
+					SDKHook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
+				}
 			}
 		}
 	}
@@ -1351,8 +1368,7 @@ void IsAllowed()
 			{
 				if( IsClientInGame(i) )
 				{
-					SDKUnhook(i, SDKHook_OnTakeDamageAlive, OnAcidDamage);
-					SDKUnhook(i, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
+					SDKUnhook(i, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
 				}
 			}
 
@@ -1360,15 +1376,13 @@ void IsAllowed()
 			int entity = -1;
 			while( (entity = FindEntityByClassname(entity, "infected")) != INVALID_ENT_REFERENCE )
 			{
-				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
-				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
+				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
 			}
 
 			entity = -1;
 			while( (entity = FindEntityByClassname(entity, "witch")) != INVALID_ENT_REFERENCE )
 			{
-				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
-				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
+				SDKUnhook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
 			}
 		}
 	}
@@ -2116,8 +2130,11 @@ void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	{
 		// Since players can spawn (admin command) without dieing, should unhook and rehook here.
 		// FIXME: TODO: Many other plugins probably need updating for this or they'll have duplicate hooks.
-		SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnAcidDamage);
-		SDKHook(client, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+		if( g_bLeft4Dead2 )
+		{
+			SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
+			SDKHook(client, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
+		}
 	}
 }
 
@@ -2126,12 +2143,14 @@ void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if( client && IsValidEntity(client) )
 	{
-		SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+		if( g_bLeft4Dead2 )
+		{
+			SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
+		}
 
 		// Glow mode: Reset color on death
 		if( GetEntProp(client, Prop_Send, "m_glowColorOverride") == GLOW_COLOR )
 		{
-			SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
 			SetEntProp(client, Prop_Send, "m_iGlowType", 0);
 			SetEntProp(client, Prop_Send, "m_glowColorOverride", 0);
 		}
@@ -2151,6 +2170,16 @@ void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 
 void ResetPlugin(bool all = false)
 {
+	if( g_bLeft4Dead2 )
+	{
+		delete g_hAlAcid;
+		delete g_hAlFire;
+		delete g_hAlFireType;
+		g_hAlAcid = new ArrayList();
+		g_hAlFire = new ArrayList();
+		g_hAlFireType = new ArrayList();
+	}
+
 	for( int i = 1; i <= MaxClients; i++ )
 	{
 		g_bChangingTypesMenu[i] = false;
@@ -2161,9 +2190,9 @@ void ResetPlugin(bool all = false)
 
 		if( all )
 		{
-			SDKUnhook(i, SDKHook_OnTakeDamageAlive,	OnShield);
 			SDKUnhook(i, SDKHook_WeaponEquip,		OnWeaponEquip);
 			SDKUnhook(i, SDKHook_WeaponDrop,		OnWeaponDrop);
+			SDKUnhook(i, SDKHook_OnTakeDamageAlive,	OnPlayerDamage);
 		}
 	}
 
@@ -2341,10 +2370,19 @@ public void OnEntityCreated(int entity, const char[] classname)
 			}
 		}
 
-		
-		if( g_bHookFire && strcmp(classname, "inferno") == 0 )
+		// Cluster fire / Firework hooks
+		if( g_bHookFire && strcmp(classname, "inferno") == 0)
 		{
 			SDKHook(entity, SDKHook_ThinkPost, OnPostThink);
+
+			g_hAlFire.Push(EntIndexToEntRef(entity));
+			g_hAlFireType.Push(g_iFireType);
+		}
+
+		else if( g_bHookFire && strcmp(classname, "fire_cracker_blast") == 0 )
+		{
+			g_hAlFire.Push(EntIndexToEntRef(entity));
+			g_hAlFireType.Push(g_iFireType);
 		}
 
 		// Chemical Mode - Acid damage
@@ -2354,14 +2392,15 @@ public void OnEntityCreated(int entity, const char[] classname)
 			{
 				if( strcmp(classname, "insect_swarm") == 0 )
 				{
-					g_hAlAcid.Push(entity);
+					g_hAlAcid.Push(EntIndexToEntRef(entity));
 					g_bAcidSpawn = false;
+					return;
 				}
 			}
 
 			if( strcmp(classname, "infected") == 0 || strcmp(classname, "witch") == 0 )
 			{
-				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnAcidDamage);
+				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
 			}
 		}
 	}
@@ -2395,6 +2434,8 @@ void OnNextFrame(int entity)
 	if( client > 0 && client <= MaxClients && IsClientInGame(client) )
 	{
 		int index = g_iClientGrenadeType[client];
+		if( index == 0 ) index = g_GrenadeType[EntRefToEntIndex(entity)];
+
 		if( index > 0 && CheckCommandAccess(client, "sm_grenade", 0) == true )
 		{
 			// Game bug: when "weapon_oxygentank" and "weapon_propanetank" explode they create a "pipe_bomb_projectile". This prevents those erroneous ents.
@@ -3146,7 +3187,7 @@ void Explode_Cluster(int client, int entity, int index, bool fromTimer)
 		if( entity != -1 )
 		{
 			// Fire and forget - cluster projectiles
-			InputKill(entity, 3.0);
+			InputKill(entity, 3.0, true);
 
 			g_GrenadeType[entity] = index;								// Store mode type
 			SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client); // Store owner
@@ -3204,11 +3245,16 @@ void OnTouchTrigger_Cluster(int entity, int target)
 	int index = g_GrenadeType[entity];
 
 	if( index - 1 == INDEX_CLUSTER )
+	{
 		CreateExplosion(client, entity, INDEX_CLUSTER + 1, 200.0, vPos, DMG_BLAST);
+	}
 	else
 	{
 		if( g_bLeft4Dead2 ) // Property "m_fireXDelta" does not exist in L4D1. TODO: Make compatible alternative effect.
+		{
+			g_iFireType = index;
 			g_bHookFire = true;
+		}
 		CreateFires(entity, client, true);
 		g_bHookFire = false;
 	}
@@ -3245,7 +3291,10 @@ void Explode_Firework(int client, int entity, int index, bool fromTimer)
 		else PlaySound(entity, SOUND_EXPLODE5);
 
 		// Fire
+		g_iFireType = index;
+		g_bHookFire = true;
 		CreateFires(entity, client, !g_bLeft4Dead2);
+		g_bHookFire = false;
 
 		// Fire Particles
 		if( g_bLeft4Dead2 == false )
@@ -3256,6 +3305,211 @@ void Explode_Firework(int client, int entity, int index, bool fromTimer)
 			DisplayParticle(entity,		PARTICLE_GSPARKS,		vPos, NULL_VECTOR);
 		}
 	}
+}
+
+Action OnPlayerDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+{
+	// SHIELD
+	// Check hook time
+	if( GetGameTime() - g_fLastShield[victim] <= 0.5 && GetClientTeam(victim) == 2 )
+	{
+		damage *= (100 - g_GrenadeData[INDEX_SHIELD][CONFIG_DAMAGE]) / 100;
+		if( damage < 0.0 ) damage = 0.0;
+		return Plugin_Changed;
+	}
+
+
+
+	// GLOW
+	if( g_fConfigGlowBonus != 1.0 && GetEntProp(victim, Prop_Send, "m_glowColorOverride") == GLOW_COLOR )
+	{
+		damage *= g_fConfigGlowBonus;
+		if( damage < 0.0 ) damage = 0.0;
+	}
+
+
+
+	if( g_bLeft4Dead2 )
+	{
+		// if( damagetype == (DMG_ENERGYBEAM | DMG_RADIATION) || damagetype == (DMG_ENERGYBEAM | DMG_RADIATION | DMG_PREVENT_PHYSICS_FORCE) )
+		// 1024 (1<<10) DMG_ENERGYBEAM
+		// 2048 (1<<11) DMG_PREVENT_PHYSICS_FORCE
+		// 262144 (1<<18) DMG_RADIATION
+
+		// ACID
+		if( damagetype == 263168 || damagetype == 265216 ) // 265216 at end of entity life when fading out
+		{
+			int entity;
+			int len = g_hAlAcid.Length;
+
+			// Match inflictor with one we created
+			for( int i = 0; i < len; i++ )
+			{
+				entity = g_hAlAcid.Get(i);
+
+				// Clear invalid ents
+				entity = EntRefToEntIndex(entity);
+				if( entity == INVALID_ENT_REFERENCE )
+				{
+					g_hAlAcid.Erase(i);
+					i--;
+					len--;
+				}
+
+				// Modify damage
+				if( entity == inflictor )
+				{
+					if( victim > 0 && victim <= MaxClients )
+					{
+						if( victim == attacker )
+						{
+							damage *= g_fConfigAcidSelf;
+
+							if( damage > 0 )
+							{
+								return Plugin_Changed;
+							}
+						}
+						else
+						{
+							int team = GetClientTeam(victim);
+							if( team == 2 ) damage *= g_fConfigAcidSurv;
+							else if( team == 3 ) damage *= g_fConfigAcidSpec;
+
+							if( damage > 0 )
+							{
+								return Plugin_Changed;
+							}
+						}
+					}
+					else if( victim > MaxClients )
+					{
+						damage *= g_fConfigAcidComm;
+
+						if( damage > 0 )
+						{
+							return Plugin_Changed;
+						}
+					}
+				}
+			}
+		}
+
+
+
+		// FIRE
+		return OnFireDamage(victim, attacker, inflictor, damage, damagetype);
+	}
+
+	return Plugin_Continue;
+}
+
+Action OnInfectedDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+{
+	// FIRE
+	return OnFireDamage(victim, attacker, inflictor, damage, damagetype);
+}
+
+Action OnFireDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+{
+	if( damagetype & DMG_BURN )
+	{
+		int entity;
+		int len = g_hAlFire.Length;
+
+		// Match inflictor with one we created
+		for( int i = 0; i < len; i++ )
+		{
+			entity = g_hAlFire.Get(i);
+
+			// Clear invalid ents
+			entity = EntRefToEntIndex(entity);
+			if( entity == INVALID_ENT_REFERENCE )
+			{
+				g_hAlFire.Erase(i);
+				g_hAlFireType.Erase(i);
+				i--;
+				len--;
+			}
+
+			// Modify damage
+			if( entity == inflictor && entity != INVALID_ENT_REFERENCE )
+			{
+				int index = g_hAlFireType.Get(i);
+				int targ = g_GrenadeTarg[index - 1];
+				bool pass;
+				float fDamage = g_GrenadeData[index - 1][CONFIG_DAMAGE];
+
+				// Valid victim. Scale damage
+				if( victim > 0 && victim <= MaxClients && (targ & (1<<TARGET_SURVIVOR) || targ & (1<<TARGET_SPECIAL)) )
+				{
+					int team = GetClientTeam(victim);
+					if( team == 2 && targ & (1<<TARGET_SURVIVOR) )
+					{
+						fDamage = fDamage * g_fConfigSurvivors * g_GrenadeData[index - 1][CONFIG_DMG_SURVIVORS];
+						pass = true;
+					}
+					else if( team == 3 && targ & (1<<TARGET_SPECIAL) && GetEntProp(victim, Prop_Send, "m_zombieClass") != g_iClassTank )
+					{
+						fDamage = fDamage * g_fConfigSpecial * g_GrenadeData[index - 1][CONFIG_DMG_SPECIAL];
+						pass = true;
+					}
+					else if( team == 3 && targ & (1<<TARGET_TANK) && GetEntProp(victim, Prop_Send, "m_zombieClass") == g_iClassTank )
+					{
+						fDamage = fDamage * g_fConfigTank * g_GrenadeData[index - 1][CONFIG_DMG_TANK];
+						pass = true;
+					}
+				}
+
+				if( victim > MaxClients && (targ & (1<<TARGET_WITCH) || targ & (1<<TARGET_COMMON) || targ & (1<<TARGET_PHYSICS)) )
+				{
+					// Check classname
+					static char classname[16];
+					GetEdictClassname(victim, classname, sizeof(classname));
+
+					if( targ & (1 << TARGET_WITCH) && strcmp(classname, "witch") == 0 )
+					{
+						fDamage = fDamage * g_fConfigWitch * g_GrenadeData[index - 1][CONFIG_DMG_WITCH];
+
+						pass = true;
+					}
+					else if( targ & (1 << TARGET_COMMON) && strcmp(classname, "infected") == 0 )
+					{
+						pass = true;
+					}
+					else if( targ & (1<<TARGET_PHYSICS) )
+					{
+						if(
+							strcmp(classname, "prop_physics") == 0 ||
+							strcmp(classname, "weapon_gascan") == 0
+						)
+						{
+							fDamage = fDamage * g_fConfigPhysics * g_GrenadeData[index - 1][CONFIG_DMG_PHYSICS];
+
+							pass = true;
+						}
+					}
+				}
+
+				if( pass )
+				{
+					// SDKHooks_TakeDamage(victim, attacker, attacker, fDamage, DMG_BURN);
+					damage = fDamage;
+
+					if( damage > 0 )
+					{
+						return Plugin_Changed;
+					}
+				}
+				else
+				{
+					return Plugin_Handled;
+				}
+			}
+		}
+	}
+
+	return Plugin_Continue;
 }
 
 // ====================================================================================================
@@ -3377,32 +3631,8 @@ void OnTouchTriggerShield(int target)
 {
 	if( target <= MaxClients && GetClientTeam(target) == 2 )
 	{
-		if( g_fLastShield[target] == 0.0 )
-		{
-			SDKHook(target, SDKHook_OnTakeDamageAlive, OnShield);
-		}
-
 		g_fLastShield[target] = GetGameTime();
 	}
-}
-
-Action OnShield(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
-{
-	// Check hook time
-	if( GetGameTime() - g_fLastShield[victim] > 0.5 )
-	{
-		g_fLastShield[victim] = 0.0;
-		SDKUnhook(victim, SDKHook_OnTakeDamageAlive, OnShield);
-		return Plugin_Continue;
-	}
-
-	if( GetClientTeam(victim) == 2 )
-	{
-		damage *= (100 - g_GrenadeData[INDEX_SHIELD][CONFIG_DAMAGE]) / 100;
-		if( damage < 0.0 ) damage = 0.0;
-		return Plugin_Changed;
-	}
-	return Plugin_Continue;
 }
 
 // ====================================================================================================
@@ -3538,59 +3768,6 @@ void Explode_Chemical(int client, int entity, int index, bool fromTimer)
 			vPos[2] -= 5.0;
 		}
 	}
-}
-
-Action OnAcidDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
-{
-	// if( damagetype == (DMG_ENERGYBEAM | DMG_RADIATION) || damagetype == (DMG_ENERGYBEAM | DMG_RADIATION | DMG_PREVENT_PHYSICS_FORCE) )
-	// 1024 (1<<10) DMG_ENERGYBEAM
-	// 2048 (1<<11) DMG_PREVENT_PHYSICS_FORCE
-	// 262144 (1<<18) DMG_RADIATION
-
-	if( damagetype == 263168 || damagetype == 265216 ) // 265216 at end of entity life when fading out
-	{
-		int entity;
-		int len = g_hAlAcid.Length;
-
-		// Match inflictor with one we created
-		for( int i = 0; i < len; i++ )
-		{
-			entity = g_hAlAcid.Get(i);
-
-			// Clear invalid ents
-			if( EntRefToEntIndex(entity) == INVALID_ENT_REFERENCE )
-			{
-				g_hAlAcid.Erase(i);
-				i--;
-			}
-
-			// Modify damage
-			if( entity == inflictor )
-			{
-				if( victim > 0 && victim <= MaxClients )
-				{
-					if( victim == attacker )
-					{
-						damage *= g_fConfigAcidSelf;
-						return Plugin_Changed;
-					}
-					else
-					{
-						int team = GetClientTeam(victim);
-						if( team == 2 ) damage *= g_fConfigAcidSurv;
-						else if( team == 3 ) damage *= g_fConfigAcidSpec;
-						return Plugin_Changed;
-					}
-				}
-				else if( victim > MaxClients )
-				{
-					damage *= g_fConfigAcidComm;
-					return Plugin_Changed;
-				}
-			}
-		}
-	}
-	return Plugin_Continue;
 }
 
 // ====================================================================================================
@@ -4197,7 +4374,6 @@ void Explode_Bullets(int client, int entity, int index, bool fromTimer)
 
 	// Bullets
 	Handle trace;
-	static char classname[16];
 	static float vEnd[3], vAng[3];
 	float fDamage;
 	int particle;
@@ -4265,6 +4441,7 @@ void Explode_Bullets(int client, int entity, int index, bool fromTimer)
 			if( target > MaxClients && (targ & (1<<TARGET_WITCH) || targ & (1<<TARGET_COMMON) || targ & (1<<TARGET_PHYSICS)) )
 			{
 				// Check classname
+				static char classname[16];
 				GetEdictClassname(target, classname, sizeof(classname));
 
 				if( targ & (1 << TARGET_WITCH) && strcmp(classname, "witch") == 0 )
@@ -4805,12 +4982,14 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 								DispatchKeyValue(i, "targetname", "");
 							}
 						}
-
-						// GodMode
-						aGodMode.Push(i);
-						SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
 					}
 				}
+
+
+
+				// GodMode
+				aGodMode.Push(i);
+				SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
 			}
 		}
 
@@ -5066,173 +5245,173 @@ bool GrenadeSpecificExplosion(int target, int client, int entity, int index, int
 	// ==================================================
 	// BLACKHOLE - Pull into center
 	// ==================================================
-	if( index -1 == INDEX_BLACKHOLE )
+	switch( index -1 )
 	{
-		if( type == TARGET_SURVIVOR )
+		case INDEX_BLACKHOLE:
 		{
-			if( GetEntPropEnt(client, Prop_Send, "m_hGroundEntity") != -1 ) // Must be on ground
+			if( type == TARGET_SURVIVOR )
 			{
-				MakeVectorFromPoints(vEnd, vPos, vEnd);
-				NormalizeVector(vEnd, vEnd);
-				ScaleVector(vEnd, fDistance);
-
-				if( fDistance < 150 && GetEntProp(target, Prop_Send, "m_fFlags") & FL_ONGROUND == 0 ) // Reduce height when in air near center
-					vEnd[2] = 100.0;
-				else
-					vEnd[2] = 300.0;
-
-				TeleportEntity(target, NULL_VECTOR, NULL_VECTOR, vEnd);
-			}
-		}
-		else
-		{
-			if( type == TARGET_WITCH )
-			{
-				static float vAng[3];
-				MakeVectorFromPoints(vPos, vEnd, vAng);
-				NormalizeVector(vAng, vAng);
-				vEnd[0] += vAng[0] * 10;
-				vEnd[1] += vAng[1] * 10;
-				vEnd[2] += vAng[2] * 10;
-
-				PushCommon(client, target, vEnd, false);
-			}
-		}
-	}
-
-	// ==================================================
-	// TESLA - Push away
-	// ==================================================
-	else if( index -1 == INDEX_TESLA )
-	{
-		// Check duration
-		if( GetGameTime() - g_fLastTesla[target] >= g_GrenadeData[INDEX_TESLA][CONFIG_DMG_TICK] )
-		{
-			g_fLastTesla[entity] = GetGameTime();
-			g_fLastTesla[target] = GetGameTime();
-
-			GetEntPropVector(target, Prop_Data, "m_vecOrigin", vEnd);
-			vPos[2] += 50.0;
-			vEnd[2] += 50.0;
-			if( IsVisibleTo(vPos, vEnd) )
-			{
-				if( type == TARGET_SURVIVOR )
+				if( GetEntPropEnt(client, Prop_Send, "m_hGroundEntity") != -1 ) // Must be on ground
 				{
-					MakeVectorFromPoints(vPos, vEnd, vEnd);
+					MakeVectorFromPoints(vEnd, vPos, vEnd);
 					NormalizeVector(vEnd, vEnd);
-					ScaleVector(vEnd, 400.0);
-					vEnd[2] = 300.0;
+					ScaleVector(vEnd, fDistance);
+
+					if( fDistance < 150 && GetEntProp(target, Prop_Send, "m_fFlags") & FL_ONGROUND == 0 ) // Reduce height when in air near center
+						vEnd[2] = 100.0;
+					else
+						vEnd[2] = 300.0;
+
 					TeleportEntity(target, NULL_VECTOR, NULL_VECTOR, vEnd);
 				}
+			}
+			else
+			{
+				if( type == TARGET_WITCH )
+				{
+					static float vAng[3];
+					MakeVectorFromPoints(vPos, vEnd, vAng);
+					NormalizeVector(vAng, vAng);
+					vEnd[0] += vAng[0] * 10;
+					vEnd[1] += vAng[1] * 10;
+					vEnd[2] += vAng[2] * 10;
 
-				TeslaShock(entity, target);
-				vPos[2] -= 50.0;
+					PushCommon(client, target, vEnd, false);
+				}
+			}
+		}
+
+		// ==================================================
+		// TESLA - Push away
+		// ==================================================
+		case INDEX_TESLA:
+		{
+			// Check duration
+			if( GetGameTime() - g_fLastTesla[target] >= g_GrenadeData[INDEX_TESLA][CONFIG_DMG_TICK] )
+			{
+				g_fLastTesla[entity] = GetGameTime();
+				g_fLastTesla[target] = GetGameTime();
+
+				GetEntPropVector(target, Prop_Data, "m_vecOrigin", vEnd);
+				vPos[2] += 50.0;
+				vEnd[2] += 50.0;
+				if( IsVisibleTo(vPos, vEnd) )
+				{
+					if( type == TARGET_SURVIVOR )
+					{
+						MakeVectorFromPoints(vPos, vEnd, vEnd);
+						NormalizeVector(vEnd, vEnd);
+						ScaleVector(vEnd, 400.0);
+						vEnd[2] = 300.0;
+						TeleportEntity(target, NULL_VECTOR, NULL_VECTOR, vEnd);
+					}
+
+					TeslaShock(entity, target);
+					vPos[2] -= 50.0;
+				} else {
+					return false;
+				}
 			} else {
 				return false;
 			}
-		} else {
+		}
+
+		// ==================================================
+		// FLASHBANG - Blind
+		// ==================================================
+		case INDEX_FLASHBANG:
+		{
+			if( type == TARGET_SURVIVOR )
+			{
+				GetEntPropVector(target, Prop_Data, "m_vecOrigin", vEnd);
+				vPos[2] += 50.0;
+				vEnd[2] += 50.0;
+				if( IsVisibleTo(vPos, vEnd) )
+				{
+					SDKCall(g_hSDK_DeafenClient, target, 1.0, 0.0, 0.01 );
+				}
+			}
+		}
+
+		// ==================================================
+		// VAPORIZER - Dissolve
+		// ==================================================
+		case INDEX_VAPORIZER:
+		{
+			if( GetGameTime() - GetEntPropFloat(target, Prop_Data, "m_flCreateTime") > g_GrenadeData[index - 1][CONFIG_DMG_TICK] )
+			{
+				GetEntPropVector(target, Prop_Data, "m_vecOrigin", vEnd);
+				vEnd[2] += 50.0;
+				if( IsVisibleTo(vPos, vEnd) )
+				{
+					SetEntPropFloat(target, Prop_Data, "m_flCreateTime", GetGameTime());
+
+					// Does not happen here?
+					// Prevent error msg: "Entity 157 (class 'pipe_bomb_projectile') reported ENTITY_CHANGE_NONE but 'm_flCreateTime' changed."
+					// int offset = FindDataMapInfo(target, "m_flCreateTime");
+					// ChangeEdictState(target, offset);
+
+					DissolveCommon(client, entity, target, fDamage);
+					return true;
+				}
+			}
+
 			return false;
 		}
-	}
 
-	// ==================================================
-	// FLASHBANG - Blind
-	// ==================================================
-	else if( index -1 == INDEX_FLASHBANG )
-	{
-		if( type == TARGET_SURVIVOR )
+		// ==================================================
+		// GLOW
+		// ==================================================
+		case INDEX_GLOW:
 		{
-			GetEntPropVector(target, Prop_Data, "m_vecOrigin", vEnd);
-			vPos[2] += 50.0;
-			vEnd[2] += 50.0;
-			if( IsVisibleTo(vPos, vEnd) )
+			if( g_GrenadeType[target] == 0 && GetEntProp(target, Prop_Send, "m_glowColorOverride") == 0 ) // Avoid conflict with Mutant Zombies that are already glowing.
 			{
-				SDKCall(g_hSDK_DeafenClient, target, 1.0, 0.0, 0.01 );
-			}
-		}
-	}
+				SetEntProp(target, Prop_Send, "m_nGlowRange", RoundFloat(g_GrenadeData[index - 1][CONFIG_RANGE] * 4));
+				SetEntProp(target, Prop_Send, "m_iGlowType", 3); // 2 = Requires line of sight. 3 = Glow through walls.
+				SetEntProp(target, Prop_Send, "m_glowColorOverride", GLOW_COLOR);
 
-	// ==================================================
-	// VAPORIZER - Dissolve
-	// ==================================================
-	else if( index -1 == INDEX_VAPORIZER )
-	{
-		if( GetGameTime() - GetEntPropFloat(target, Prop_Data, "m_flCreateTime") > g_GrenadeData[index - 1][CONFIG_DMG_TICK] )
-		{
-			GetEntPropVector(target, Prop_Data, "m_vecOrigin", vEnd);
-			vEnd[2] += 50.0;
-			if( IsVisibleTo(vPos, vEnd) )
-			{
-				SetEntPropFloat(target, Prop_Data, "m_flCreateTime", GetGameTime());
-
-				// Does not happen here?
-				// Prevent error msg: "Entity 157 (class 'pipe_bomb_projectile') reported ENTITY_CHANGE_NONE but 'm_flCreateTime' changed."
-				// int offset = FindDataMapInfo(target, "m_flCreateTime");
-				// ChangeEdictState(target, offset);
-
-				DissolveCommon(client, entity, target, fDamage);
-				return true;
+				CreateTimer(g_GrenadeData[index - 1][CONFIG_TIME], TimerResetGlow, target <= MaxClients ? GetClientUserId(target) : EntIndexToEntRef(target));
 			}
 		}
 
-		return false;
-	}
-
-	// ==================================================
-	// GLOW
-	// ==================================================
-	else if( index -1 == INDEX_GLOW )
-	{
-		if( g_GrenadeType[target] == 0 && GetEntProp(target, Prop_Send, "m_glowColorOverride") == 0 ) // Avoid conflict with Mutant Zombies and already glowing.
+		// ==================================================
+		// ANTI-GRAVITY - Teleport up
+		// ==================================================
+		case INDEX_ANTIGRAVITY:
 		{
-			if( g_fConfigGlowBonus != 1.0 )
-				SDKHook(target, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
+			if( type == TARGET_SURVIVOR )
+			{
+				static float vVel[3];
+				GetEntPropVector(target, Prop_Data, "m_vecAbsVelocity", vVel);
+				if( GetEntProp(target, Prop_Send, "m_fFlags") & FL_ONGROUND )
+					vVel[2] = 350.0;
+				else
+					vVel[2] = 100.0;
+				TeleportEntity(target, NULL_VECTOR, NULL_VECTOR, vVel);
 
-			SetEntProp(target, Prop_Send, "m_nGlowRange", RoundFloat(g_GrenadeData[index - 1][CONFIG_RANGE] * 4));
-			SetEntProp(target, Prop_Send, "m_iGlowType", 3); // 2 = Requires line of sight. 3 = Glow through walls.
-			SetEntProp(target, Prop_Send, "m_glowColorOverride", GLOW_COLOR);
-
-			CreateTimer(g_GrenadeData[index - 1][CONFIG_TIME], TimerResetGlow, target <= MaxClients ? GetClientUserId(target) : EntIndexToEntRef(target));
-		}
-	}
-
-	// ==================================================
-	// ANTI-GRAVITY - Teleport up
-	// ==================================================
-	else if( index -1 == INDEX_ANTIGRAVITY )
-	{
-		if( type == TARGET_SURVIVOR )
-		{
-			static float vVel[3];
-			GetEntPropVector(target, Prop_Data, "m_vecAbsVelocity", vVel);
-			if( GetEntProp(target, Prop_Send, "m_fFlags") & FL_ONGROUND )
-				vVel[2] = 350.0;
-			else
-				vVel[2] = 100.0;
-			TeleportEntity(target, NULL_VECTOR, NULL_VECTOR, vVel);
-
-			AcceptEntityInput(client, "DisableLedgeHang");
-			SetEntityGravity(target, 0.4);
-			CreateTimer(0.1, TimerResetGravity, GetClientUserId(target), TIMER_REPEAT);
-		}
-	}
-
-	// ==================================================
-	// EXTINGUISHER
-	// ==================================================
-	else if( index -1 == INDEX_EXTINGUISHER )
-	{
-		if( g_fConfigExtEffect & EXT_FIRES )
-		{
-			ExtinguishEntity(target);
+				AcceptEntityInput(client, "DisableLedgeHang");
+				SetEntityGravity(target, 0.4);
+				CreateTimer(0.1, TimerResetGravity, GetClientUserId(target), TIMER_REPEAT);
+			}
 		}
 
-		if( g_bLeft4DHooks && g_fConfigExtEffect & EXT_VOMIT )
+		// ==================================================
+		// EXTINGUISHER
+		// ==================================================
+		case INDEX_EXTINGUISHER:
 		{
-			L4D_OnITExpired(target);
-		}
+			if( g_fConfigExtEffect & EXT_FIRES )
+			{
+				ExtinguishEntity(target);
+			}
 
-		return false;
+			if( g_bLeft4DHooks && g_fConfigExtEffect & EXT_VOMIT )
+			{
+				L4D_OnITExpired(target);
+			}
+
+			return false;
+		}
 	}
 
 	return true;
@@ -5260,25 +5439,12 @@ Action TimerResetGlow(Handle timer, int target)
 	target = ValidTargetRef(target);
 	if( target && GetEntProp(target, Prop_Send, "m_glowColorOverride") == GLOW_COLOR )
 	{
-		SDKUnhook(target, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
 		SetEntProp(target, Prop_Send, "m_nGlowRange", 0);
 		SetEntProp(target, Prop_Send, "m_iGlowType", 0);
 		SetEntProp(target, Prop_Send, "m_glowColorOverride", 0);
 	}
 
 	return Plugin_Continue;
-}
-
-Action OnTakeDamageGlow(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
-{
-	if( GetEntProp(victim, Prop_Send, "m_glowColorOverride") != GLOW_COLOR )
-	{
-		SDKUnhook(victim, SDKHook_OnTakeDamageAlive, OnTakeDamageGlow);
-		return Plugin_Continue;
-	}
-
-	damage *= g_fConfigGlowBonus;
-	return Plugin_Changed;
 }
 
 int ValidTargetRef(int target)
