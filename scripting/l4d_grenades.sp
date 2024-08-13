@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.50"
+#define PLUGIN_VERSION 		"1.51"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.51 (13-Aug-2024)
+	- Fixed Chemical type damage affecting players when set to no damage. Thanks to "Mi.Cura" for reporting.
 
 1.50 (04-Aug-2024)
 	- Changed the "Firework" and "Fire Cluster" modes to support setting the "targets" key in the data config. Requested by "Voevoda".
@@ -1322,7 +1325,7 @@ void IsAllowed()
 				// Chemical Mode - Acid damage
 				if( g_bLeft4Dead2 )
 				{
-					SDKHook(i, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
+					SDKHook(i, SDKHook_OnTakeDamage, OnPlayerDamage);
 				}
 			}
 		}
@@ -1333,19 +1336,13 @@ void IsAllowed()
 			int entity = -1;
 			while( (entity = FindEntityByClassname(entity, "infected")) != INVALID_ENT_REFERENCE )
 			{
-				if( g_bLeft4Dead2 )
-				{
-					SDKHook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
-				}
+				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
 			}
 
 			entity = -1;
 			while( (entity = FindEntityByClassname(entity, "witch")) != INVALID_ENT_REFERENCE )
 			{
-				if( g_bLeft4Dead2 )
-				{
-					SDKHook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
-				}
+				SDKHook(entity, SDKHook_OnTakeDamageAlive, OnInfectedDamage);
 			}
 		}
 	}
@@ -1368,7 +1365,7 @@ void IsAllowed()
 			{
 				if( IsClientInGame(i) )
 				{
-					SDKUnhook(i, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
+					SDKUnhook(i, SDKHook_OnTakeDamage, OnPlayerDamage);
 				}
 			}
 
@@ -2132,8 +2129,8 @@ void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 		// FIXME: TODO: Many other plugins probably need updating for this or they'll have duplicate hooks.
 		if( g_bLeft4Dead2 )
 		{
-			SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
-			SDKHook(client, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
+			SDKUnhook(client, SDKHook_OnTakeDamage, OnPlayerDamage);
+			SDKHook(client, SDKHook_OnTakeDamage, OnPlayerDamage);
 		}
 	}
 }
@@ -2145,7 +2142,7 @@ void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 	{
 		if( g_bLeft4Dead2 )
 		{
-			SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnPlayerDamage);
+			SDKUnhook(client, SDKHook_OnTakeDamage, OnPlayerDamage);
 		}
 
 		// Glow mode: Reset color on death
@@ -2192,7 +2189,7 @@ void ResetPlugin(bool all = false)
 		{
 			SDKUnhook(i, SDKHook_WeaponEquip,		OnWeaponEquip);
 			SDKUnhook(i, SDKHook_WeaponDrop,		OnWeaponDrop);
-			SDKUnhook(i, SDKHook_OnTakeDamageAlive,	OnPlayerDamage);
+			SDKUnhook(i, SDKHook_OnTakeDamage,		OnPlayerDamage);
 		}
 	}
 
@@ -3365,7 +3362,7 @@ Action OnPlayerDamage(int victim, int &attacker, int &inflictor, float &damage, 
 						{
 							damage *= g_fConfigAcidSelf;
 
-							if( damage > 0 )
+							if( damage > -0.1 )
 							{
 								return Plugin_Changed;
 							}
@@ -3376,7 +3373,7 @@ Action OnPlayerDamage(int victim, int &attacker, int &inflictor, float &damage, 
 							if( team == 2 ) damage *= g_fConfigAcidSurv;
 							else if( team == 3 ) damage *= g_fConfigAcidSpec;
 
-							if( damage > 0 )
+							if( damage > -0.1 )
 							{
 								return Plugin_Changed;
 							}
@@ -3386,7 +3383,7 @@ Action OnPlayerDamage(int victim, int &attacker, int &inflictor, float &damage, 
 					{
 						damage *= g_fConfigAcidComm;
 
-						if( damage > 0 )
+						if( damage > -0.1 )
 						{
 							return Plugin_Changed;
 						}
@@ -3496,7 +3493,7 @@ Action OnFireDamage(int victim, int &attacker, int &inflictor, float &damage, in
 					// SDKHooks_TakeDamage(victim, attacker, attacker, fDamage, DMG_BURN);
 					damage = fDamage;
 
-					if( damage > 0 )
+					if( damage > -0.1 )
 					{
 						return Plugin_Changed;
 					}
