@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.51"
+#define PLUGIN_VERSION 		"1.52"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.52 (07-Sep-2024)
+	- Changed the "Flashbang" type to use "effect_range" for particle and screen effects. Thanks to "JustMadMan" for reporting.
 
 1.51 (13-Aug-2024)
 	- Fixed Chemical type damage affecting players when set to no damage. Thanks to "Mi.Cura" for reporting.
@@ -4955,8 +4958,6 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 							// Damage
 							if( fDamage != 0.0 && (!g_bLeft4Dead2 || (team == 3 || index != INDEX_CHEMICAL)) ) // Chemical mode in L4D2 only needs to damage non-survivor, the spit already damages them.
 							{
-								clients[flashcount++] = i;
-
 								// Hurt
 								// Cannot use SDKHooks_TakeDamage because it doesn't push in the correct direction.
 								FloatToString(fDamage, sTemp, sizeof(sTemp));
@@ -4980,9 +4981,13 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 							}
 						}
 					}
+
+					// Flashbang
+					if( index == INDEX_FLASHBANG && fDistance < g_GrenadeData[index][CONFIG_RANGE] )
+					{
+						clients[flashcount++] = i;
+					}
 				}
-
-
 
 				// GodMode
 				aGodMode.Push(i);
@@ -4990,8 +4995,7 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 			}
 		}
 
-		// Flashbang
-		if( flashcount && index == INDEX_FLASHBANG )
+		if( flashcount )
 		{
 			// Blind
 			Handle message = StartMessageEx(g_FadeUserMsgId, clients, flashcount);
