@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.52"
+#define PLUGIN_VERSION 		"1.53"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.53 (22-Sep-2024)
+	- Damage and stumble will be ignored if the player is not visible from the detonation area.
 
 1.52 (07-Sep-2024)
 	- Changed the "Flashbang" type to use "effect_range" for particle and screen effects. Thanks to "JustMadMan" for reporting.
@@ -4902,6 +4905,8 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 	
 					GetEntPropVector(i, Prop_Data, "m_vecOrigin", vEnd);
 					fDistance = GetVectorDistance(vPos, vEnd);
+
+					if( !IsVisibleTo(vPos, vEnd) ) continue;
 
 					// Stumble
 					// In range, not Cluster projectiles, not Tesla, not BlackHole, not Anti-Gravity
