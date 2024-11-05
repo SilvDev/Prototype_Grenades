@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.53"
+#define PLUGIN_VERSION 		"1.54"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,11 @@
 
 ========================================================================================
 	Change Log:
+
+1.54 (05-Nov-2024)
+	- Fixed the plugin allowing switching to types that are not allowed according to the "types" setting. Thanks to "yezi" for reporting.
+	- Fixed the "bots" setting being set to "0" not restricting bots from using Prototype Grenades. Thanks to "Mi.Cura" for reporting.
+	- Plugin no longer removes godmode from victims if they had it enabled to begin with.
 
 1.53 (22-Sep-2024)
 	- Damage and stumble will be ignored if the player is not visible from the detonation area.
@@ -1888,7 +1893,7 @@ public void F18_OnRoundState(int roundstate)
 // ====================================================================================================
 void OnWeaponEquip(int client, int weapon)
 {
-	if( CheckCommandAccess(client, "sm_grenade", 0) == false )
+	if( (!g_iConfigBots && IsFakeClient(client)) || CheckCommandAccess(client, "sm_grenade", 0) == false )
 	{
 		g_iClientGrenadeType[client] = 0;
 		return;
@@ -2322,7 +2327,7 @@ int GetGrenadeIndex(int client, int type)
 					// Loop from 0
 					for( int x = 0; x < MAX_TYPES; x++ )
 					{
-						if( g_GrenadeSlot[i][view_as<int>(!g_bLeft4Dead2)] & (1<<type - 1) && types & (1<<x) )
+						if( g_GrenadeSlot[x][view_as<int>(!g_bLeft4Dead2)] & (1<<type - 1) && types & (1<<x) )
 						{
 							index = x + 1;
 							break;
@@ -2436,6 +2441,9 @@ void OnNextFrame(int entity)
 	int client = GetEntPropEnt(entity, Prop_Data, "m_hThrower");
 	if( client > 0 && client <= MaxClients && IsClientInGame(client) )
 	{
+		if( !g_iConfigBots && IsFakeClient(client) )
+			return;
+
 		int index = g_iClientGrenadeType[client];
 		if( index == 0 ) index = g_GrenadeType[EntRefToEntIndex(entity)];
 
@@ -4995,8 +5003,11 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 				}
 
 				// GodMode
-				aGodMode.Push(i);
-				SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
+				if( GetEntProp(i, Prop_Data, "m_takedamage") != 0 )
+				{
+					aGodMode.Push(i);
+					SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
+				}
 			}
 		}
 
@@ -5102,8 +5113,11 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 
 
 				// GodMode
-				aGodMode.Push(i);
-				SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
+				if( GetEntProp(i, Prop_Data, "m_takedamage") != 0 )
+				{
+					aGodMode.Push(i);
+					SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
+				}
 
 
 
@@ -5197,8 +5211,11 @@ void CreateExplosion(int client, int entity, int index, float range = 0.0, float
 
 
 				// GodMode
-				aGodMode.Push(i);
-				SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
+				if( GetEntProp(i, Prop_Data, "m_takedamage") != 0 )
+				{
+					aGodMode.Push(i);
+					SetEntProp(i, Prop_Data, "m_takedamage", 0); // Prevent taking damage from env_explosion
+				}
 			}
 		}
 	}
