@@ -1,6 +1,6 @@
 /*
 *	Prototype Grenades
-*	Copyright (C) 2024 Silvers
+*	Copyright (C) 2025 Silvers
 *
 *	This program is free software: you can redistribute it and/or modify
 *	it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.54"
+#define PLUGIN_VERSION 		"1.55"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.55 (04-Jan-2025)
+	- Fixed the grenade type not keeping when using "Gear Transfer" plugin to give/grab/swap grenades. Thanks to "chungocanh12" for reporting.
 
 1.54 (05-Nov-2024)
 	- Fixed the plugin allowing switching to types that are not allowed according to the "types" setting. Thanks to "yezi" for reporting.
@@ -607,6 +610,7 @@ int		g_iParticleTracer50;
 int		g_iParticleBashed;
 UserMsg	g_FadeUserMsgId;
 
+int g_iWeaponType = -1;												// Used for Gear Transfer switching weapons to keep type when "preferences" set to "3"
 
 
 // Optional natives related
@@ -1941,6 +1945,12 @@ void OnWeaponEquip(int client, int weapon)
 				g_iClientGrenadeType[client] = 0;
 				g_iClientGrenadePref[client][type - 1] = 0;
 			}
+			else if( g_iConfigPrefs == 3 && g_iWeaponType != -1 )
+			{
+				g_iClientGrenadeType[client] = g_iWeaponType - 1;
+				g_iClientGrenadePref[client][type - 1] = g_iWeaponType - 1;
+				g_iWeaponType = -1;
+			}
 			else if( g_iClientGrenadeType[client] == -1 )
 			{
 				g_iClientGrenadeType[client] = g_iClientGrenadePref[client][type - 1];
@@ -2342,6 +2352,26 @@ int GetGrenadeIndex(int client, int type)
 	g_iClientGrenadePref[client][type - 1] = index;
 	SetClientPrefs(client);
 	return index;
+}
+
+
+
+// ====================================================================================================
+//					GEAR TRANSFER
+// ====================================================================================================
+// Keep grenade type when "preferences" is set to "3"
+public void OnEntityDestroyed(int entity)
+{
+	if( entity < 0 ) entity = EntRefToEntIndex(entity);
+
+	if( entity > 0 && entity < 2048 && g_GrenadeType[entity] )
+	{
+		g_iWeaponType = g_GrenadeType[entity];
+	}
+	else
+	{
+		g_iWeaponType = -1;
+	}
 }
 
 
