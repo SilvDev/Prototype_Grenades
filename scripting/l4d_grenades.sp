@@ -1,6 +1,6 @@
 /*
 *	Prototype Grenades
-*	Copyright (C) 2025 Silvers
+*	Copyright (C) 2026 Silvers
 *
 *	This program is free software: you can redistribute it and/or modify
 *	it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 
 
-#define PLUGIN_VERSION 		"1.55"
+#define PLUGIN_VERSION 		"1.56"
 
 /*======================================================================================
 	Plugin Info:
@@ -31,6 +31,9 @@
 
 ========================================================================================
 	Change Log:
+
+1.56 (04-Jan-2026)
+	- Fixed the "Glow" type not causing damage. Thanks to "swiftswing1" for reporting.
 
 1.55 (04-Jan-2025)
 	- Fixed the grenade type not keeping when using "Gear Transfer" plugin to give/grab/swap grenades. Thanks to "chungocanh12" for reporting.
@@ -3366,6 +3369,7 @@ Action OnPlayerDamage(int victim, int &attacker, int &inflictor, float &damage, 
 	{
 		damage *= g_fConfigGlowBonus;
 		if( damage < 0.0 ) damage = 0.0;
+		return Plugin_Changed;
 	}
 
 
